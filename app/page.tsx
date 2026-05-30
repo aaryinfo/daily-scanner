@@ -104,7 +104,16 @@ const getLevelY = (points: number[], level: number) => {
   return 100 - ((level - min) / (max - min)) * 100;
 };
 
+const normalizeTradingViewSymbol = (symbol: string) => {
+  const cleaned = symbol.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (cleaned.endsWith("I") && cleaned.length > 2) {
+    return cleaned.slice(0, -1);
+  }
+  return cleaned;
+};
+
 const loadTradingView = (symbol: string, containerId: string) => {
+  const tvSymbol = `NSE:${normalizeTradingViewSymbol(symbol)}`;
   const tv = (window as any).TradingView;
   if (!tv && !document.querySelector(`script[src="https://s3.tradingview.com/tv.js"]`)) {
     const script = document.createElement("script");
@@ -115,7 +124,7 @@ const loadTradingView = (symbol: string, containerId: string) => {
         container_id: containerId,
         width: "100%",
         height: 420,
-        symbol: `NSE:${symbol}`,
+        symbol: tvSymbol,
         interval: "15",
         timezone: "Asia/Kolkata",
         theme: "dark",
@@ -135,7 +144,7 @@ const loadTradingView = (symbol: string, containerId: string) => {
       container_id: containerId,
       width: "100%",
       height: 420,
-      symbol: `NSE:${symbol}`,
+      symbol: tvSymbol,
       interval: "15",
       timezone: "Asia/Kolkata",
       theme: "dark",
@@ -218,6 +227,11 @@ export default function StockScanner() {
       if (timeout) clearTimeout(timeout);
     };
   }, []);
+
+  const tradingViewSymbol = useMemo(
+    () => (selectedStock ? `NSE:${normalizeTradingViewSymbol(selectedStock.symbol)}` : ""),
+    [selectedStock]
+  );
 
   useEffect(() => {
     if (!selectedStock) return;
@@ -545,7 +559,7 @@ export default function StockScanner() {
                 <div className="mb-4 flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday Price Movement</p>
-                    <p className="mt-1 text-xs text-slate-500">Live TradingView chart for NSE:{selectedStock.symbol}</p>
+                    <p className="mt-1 text-xs text-slate-500">Live TradingView chart for {tradingViewSymbol || `NSE:${selectedStock.symbol}`}</p>
                   </div>
                   <div className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-300">Live chart</div>
                 </div>
