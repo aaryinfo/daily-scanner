@@ -104,6 +104,53 @@ const getLevelY = (points: number[], level: number) => {
   return 100 - ((level - min) / (max - min)) * 100;
 };
 
+const loadTradingView = (symbol: string, containerId: string) => {
+  const tv = (window as any).TradingView;
+  if (!tv && !document.querySelector(`script[src="https://s3.tradingview.com/tv.js"]`)) {
+    const script = document.createElement("script");
+    script.src = "https://s3.tradingview.com/tv.js";
+    script.async = true;
+    script.onload = () => {
+      new (window as any).TradingView.widget({
+        container_id: containerId,
+        width: "100%",
+        height: 420,
+        symbol: `NSE:${symbol}`,
+        interval: "15",
+        timezone: "Asia/Kolkata",
+        theme: "dark",
+        style: "1",
+        locale: "en",
+        toolbar_bg: "#0f172a",
+        enable_publishing: false,
+        allow_symbol_change: false,
+        hide_top_toolbar: true,
+        save_image: false,
+        studies: ["MASimple@tv-basicstudies"],
+      });
+    };
+    document.body.appendChild(script);
+  } else {
+    new (window as any).TradingView.widget({
+      container_id: containerId,
+      width: "100%",
+      height: 420,
+      symbol: `NSE:${symbol}`,
+      interval: "15",
+      timezone: "Asia/Kolkata",
+      theme: "dark",
+      style: "1",
+      locale: "en",
+      toolbar_bg: "#0f172a",
+      enable_publishing: false,
+      allow_symbol_change: false,
+      hide_top_toolbar: true,
+      save_image: false,
+      studies: ["MASimple@tv-basicstudies"],
+    });
+  }
+};
+
 export default function StockScanner() {
   const [data, setData] = useState<StockRow[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -172,6 +219,16 @@ export default function StockScanner() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedStock) return;
+    const containerId = `tradingview-${selectedStock.symbol}`;
+    const container = document.getElementById(containerId);
+    if (container) {
+      container.innerHTML = "";
+      loadTradingView(selectedStock.symbol, containerId);
+    }
+  }, [selectedStock]);
+
   const filtered = useMemo(
     () =>
       data.filter((stock) =>
@@ -180,11 +237,19 @@ export default function StockScanner() {
     [data, searchTerm]
   );
 
-  const topPicks = useMemo(() => data.slice(0, 4), [data]);
-
   const selectedPoints = useMemo(
     () => (selectedStock ? generateIntradaySeries(selectedStock.symbol, selectedStock.price) : []),
     [selectedStock]
+  );
+
+  const bullishPicks = useMemo(
+    () => [...data].filter((stock) => stock.oiChange > 0).sort((a, b) => b.oiChange - a.oiChange).slice(0, 4),
+    [data]
+  );
+
+  const bearishPicks = useMemo(
+    () => [...data].filter((stock) => stock.oiChange < 0).sort((a, b) => a.oiChange - b.oiChange).slice(0, 4),
+    [data]
   );
 
   const targetY = selectedStock ? getLevelY(selectedPoints, selectedStock.price * 1.05) : 50;
@@ -258,18 +323,18 @@ export default function StockScanner() {
         ) : (
           <>
             <section className="grid gap-6 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
-              {topPicks.map((stock) => (
+              {bullishPicks.map((stock) => (
                 <article
-                  key={stock.symbol}
+                  key={`bullish-${stock.symbol}`}
                   onClick={() => setSelectedStock(stock)}
-                  className="cursor-pointer rounded-3xl border border-slate-800/90 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/20 transition hover:border-blue-400 hover:bg-slate-900/100"
+                  className="cursor-pointer rounded-3xl border border-emerald-500/20 bg-slate-950/90 p-6 shadow-xl shadow-slate-950/20 transition hover:border-emerald-400 hover:bg-slate-900/100"
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Top Pick</p>
+                      <p className="text-sm uppercase tracking-[0.3em] text-emerald-300">Bullish Pick</p>
                       <p className="mt-3 text-3xl font-semibold text-white">{stock.symbol}</p>
                     </div>
-                    <div className="rounded-3xl bg-slate-950/80 p-3 text-slate-300">
+                    <div className="rounded-3xl bg-emerald-950/20 p-3 text-emerald-300">
                       <ArrowUpRight className="h-5 w-5" />
                     </div>
                   </div>
@@ -303,6 +368,55 @@ export default function StockScanner() {
                 </article>
               ))}
             </section>
+
+            {bearishPicks.length > 0 && (
+              <section className="grid gap-6 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+                {bearishPicks.map((stock) => (
+                  <article
+                    key={`bearish-${stock.symbol}`}
+                    onClick={() => setSelectedStock(stock)}
+                    className="cursor-pointer rounded-3xl border border-rose-500/20 bg-slate-950/90 p-6 shadow-xl shadow-slate-950/20 transition hover:border-rose-400 hover:bg-slate-900/100"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm uppercase tracking-[0.3em] text-rose-300">Bearish Pick</p>
+                        <p className="mt-3 text-3xl font-semibold text-white">{stock.symbol}</p>
+                      </div>
+                      <div className="rounded-3xl bg-rose-950/20 p-3 text-rose-300">
+                        <ArrowUpRight className="h-5 w-5" />
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid gap-4">
+                      <div className="rounded-3xl bg-slate-950/80 p-4">
+                        <p className="text-sm text-slate-400">Entry Zone</p>
+                        <p className="mt-2 text-2xl font-semibold text-white">₹{formatValue(stock.price)}</p>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                          <p className="text-sm text-slate-400">Target</p>
+                          <p className="mt-2 text-xl font-semibold text-emerald-200">
+                            ₹{formatValue(Math.round(stock.price * 1.05))}
+                          </p>
+                        </div>
+                        <div className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-4">
+                          <p className="text-sm text-slate-400">Stop Loss</p>
+                          <p className="mt-2 text-xl font-semibold text-rose-200">
+                            ₹{formatValue(Math.round(stock.price * 0.96))}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 flex items-center justify-between rounded-3xl bg-slate-950/80 p-4 text-sm text-slate-400">
+                      <span>{formatValue(stock.volume)} Vol</span>
+                      <span>{stock.totalValue ? `₹${formatValue(stock.totalValue)}` : "-"}</span>
+                    </div>
+                  </article>
+                ))}
+              </section>
+            )}
 
             <section className="rounded-3xl border border-slate-800/90 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/20">
               <div className="flex flex-col gap-6">
@@ -397,7 +511,7 @@ export default function StockScanner() {
       {selectedStock ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 px-4 py-8 backdrop-blur-sm">
           <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-700/90 bg-slate-900/95 shadow-2xl shadow-slate-950/60">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-800/90 bg-slate-950/90 px-6 py-5">
+            <div className="relative flex items-start justify-between gap-4 border-b border-slate-800/90 bg-slate-950/90 px-6 py-5">
               <div>
                 <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday chart</p>
                 <h2 className="mt-2 text-3xl font-semibold text-white">{selectedStock.symbol}</h2>
@@ -405,7 +519,7 @@ export default function StockScanner() {
               </div>
               <button
                 onClick={() => setSelectedStock(null)}
-                className="rounded-full border border-slate-700/80 bg-slate-950/80 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-500 hover:text-white"
+                className="absolute right-4 top-4 rounded-full border border-slate-700/80 bg-slate-950/80 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-500 hover:text-white"
               >
                 Close
               </button>
@@ -431,51 +545,15 @@ export default function StockScanner() {
                 <div className="mb-4 flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday Price Movement</p>
-                    <p className="mt-1 text-xs text-slate-500">Illustrative intraday trend using current price action.</p>
+                    <p className="mt-1 text-xs text-slate-500">Live TradingView chart for NSE:{selectedStock.symbol}</p>
                   </div>
-                  <div className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-300">Real time estimate</div>
+                  <div className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-300">Live chart</div>
                 </div>
                 <div className="relative overflow-hidden rounded-[2rem] border border-slate-800/90 bg-slate-950/70 px-4 py-4">
-                  <svg viewBox="0 0 100 100" className="h-64 w-full">
-                    <defs>
-                      <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#38bdf8" />
-                        <stop offset="100%" stopColor="#22c55e" />
-                      </linearGradient>
-                    </defs>
-                    <g opacity="0.25">
-                      <line x1="0" y1="20" x2="100" y2="20" stroke="#334155" strokeWidth="0.5" />
-                      <line x1="0" y1="40" x2="100" y2="40" stroke="#334155" strokeWidth="0.5" />
-                      <line x1="0" y1="60" x2="100" y2="60" stroke="#334155" strokeWidth="0.5" />
-                      <line x1="0" y1="80" x2="100" y2="80" stroke="#334155" strokeWidth="0.5" />
-                    </g>
-                    <polyline
-                      fill="none"
-                      stroke="url(#lineGradient)"
-                      strokeWidth="2"
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      points={buildSvgPath(selectedPoints)}
-                    />
-                    <line
-                      x1="0"
-                      y1={targetY}
-                      x2="100"
-                      y2={targetY}
-                      stroke="#22c55e"
-                      strokeDasharray="4 3"
-                      opacity="0.8"
-                    />
-                    <line
-                      x1="0"
-                      y1={stopY}
-                      x2="100"
-                      y2={stopY}
-                      stroke="#f97316"
-                      strokeDasharray="4 3"
-                      opacity="0.8"
-                    />
-                  </svg>
+                  <div
+                    id={`tradingview-${selectedStock.symbol}`}
+                    className="h-[420px] w-full"
+                  />
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-3xl bg-slate-950/80 p-4 text-sm text-slate-300">
