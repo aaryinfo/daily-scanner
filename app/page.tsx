@@ -153,17 +153,33 @@ const loadTradingView = (symbol: string, containerId: string) => {
     studies: ["MASimple@tv-basicstudies"],
   };
 
-  if (!tv && !document.querySelector(`script[src="https://s3.tradingview.com/tv.js"]`)) {
-    const script = document.createElement("script");
-    script.src = "https://s3.tradingview.com/tv.js";
-    script.async = true;
-    script.onload = () => {
+  const initWidget = () => {
+    if ((window as any).TradingView) {
       new (window as any).TradingView.widget(widgetConfig);
-    };
-    document.body.appendChild(script);
-  } else {
-    new (window as any).TradingView.widget(widgetConfig);
+    }
+  };
+
+  const existingScript = document.querySelector(
+    `script[src="https://s3.tradingview.com/tv.js"]`
+  ) as HTMLScriptElement | null;
+
+  if ((window as any).TradingView) {
+    initWidget();
+    return;
   }
+
+  if (existingScript) {
+    existingScript.addEventListener("load", initWidget, { once: true });
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.src = "https://s3.tradingview.com/tv.js";
+  script.async = true;
+  script.onload = () => {
+    initWidget();
+  };
+  document.body.appendChild(script);
 };
 
 export default function StockScanner() {
@@ -203,29 +219,28 @@ export default function StockScanner() {
 
     const startLiveRefresh = () => {
       setMarketState(getMarketState());
-      if (getMarketState() !== "open") {
-        return;
-      }
-
       fetchData();
-      interval = window.setInterval(() => {
-        if (getMarketState() === "open") {
-          fetchData();
-        } else {
-          if (interval) {
-            clearInterval(interval);
+
+      if (getMarketState() === "open") {
+        interval = window.setInterval(() => {
+          if (getMarketState() === "open") {
+            fetchData();
+          } else {
+            if (interval) {
+              clearInterval(interval);
+            }
+            setMarketState(getMarketState());
           }
-          setMarketState(getMarketState());
-        }
-      }, 5 * 60 * 1000);
+        }, 5 * 60 * 1000);
+      }
     };
+
+    startLiveRefresh();
 
     if (getMarketState() === "preopen") {
       timeout = window.setTimeout(() => {
         startLiveRefresh();
       }, getNextMarketOpenDelay());
-    } else if (getMarketState() === "open") {
-      startLiveRefresh();
     }
 
     return () => {

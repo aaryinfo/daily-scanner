@@ -1,8 +1,43 @@
+import { promises as fs } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { NextResponse } from "next/server";
 import Papa from "papaparse";
 
 const NSE_PAGE = "https://www.nseindia.com/market-data/oi-spurts";
 const CSV_URL = "https://www.nseindia.com/api/live-analysis-oi-spurts-underlyings?type=underlying&csv=true&partialFileName=Spurts-in-OI-By-Underlying";
+
+const downloadsDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../downloads"
+);
+
+const getLatestFallbackCsv = async () => {
+  try {
+    const files = await fs.readdir(downloadsDir);
+    const csvFiles = files
+      .filter((filename) => /^Spurts-in-OI-By-Underlying.*\.csv$/i.test(filename))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" }));
+
+    if (csvFiles.length === 0) {
+      return null;
+    }
+
+    return path.join(downloadsDir, csvFiles[0]);
+  } catch (error) {
+    return null;
+  }
+};
+
+const loadFallbackRows = async () => {
+  const filePath = await getLatestFallbackCsv();
+  if (!filePath) {
+    return [];
+  }
+
+  const text = await fs.readFile(filePath, "utf-8");
+  return parseCsvRows(text);
+};
 
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -115,6 +150,28 @@ const getMarketState = () => {
 
 export async function GET() {
   try {
+    const closedRows = await loadFallbackRows();
+    if (getMarketState() !== "open" && closedRows.length > 0) {
+      const stats = {
+        totalRows: closedRows.length,
+        positiveCount: closedRows.filter((row) => row.oiChange > 0).length,
+        negativeCount: closedRows.filter((row) => row.oiChange < 0).length,
+        neutralCount: closedRows.filter((row) => row.oiChange === 0).length,
+        averageOiChange:
+          closedRows.reduce((sum, row) => sum + row.oiChange, 0) / Math.max(closedRows.length, 1),
+      };
+
+      return NextResponse.json(
+        {
+          updatedAt: new Date().toISOString(),
+          marketState: getMarketState(),
+          stats,
+          topPicks: closedRows.slice(0, 4),
+          rows: closedRows,
+        },
+        { status: 200 }
+      );
+    }
     const cookie = await getCookie();
     const response = await fetch(CSV_URL, {
       method: "GET",
@@ -153,6 +210,29 @@ export async function GET() {
     );
   } catch (error) {
     console.error("API /api/oi-spurts error:", error);
+
+    const fallbackRows = await loadFallbackRows();
+    if (fallbackRows.length > 0) {
+      const stats = {
+        totalRows: fallbackRows.length,
+        positiveCount: fallbackRows.filter((row) => row.oiChange > 0).length,
+        negativeCount: fallbackRows.filter((row) => row.oiChange < 0).length,
+        neutralCount: fallbackRows.filter((row) => row.oiChange === 0).length,
+        averageOiChange:
+          fallbackRows.reduce((sum, row) => sum + row.oiChange, 0) / Math.max(fallbackRows.length, 1),
+      };
+
+      return NextResponse.json(
+        {
+          updatedAt: new Date().toISOString(),
+          marketState: getMarketState(),
+          stats,
+          topPicks: fallbackRows.slice(0, 4),
+          rows: fallbackRows,
+        },
+        { status: 200 }
+      );
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unexpected error" },
       { status: 500 }
