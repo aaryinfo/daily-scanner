@@ -1,14 +1,13 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import Papa from "papaparse";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  Upload,
   TrendingUp,
   Search,
-  FileText,
   ArrowUpRight,
   AlertCircle,
+  RefreshCw,
+  Clock,
 } from "lucide-react";
 
 type StockRow = {
@@ -19,64 +18,144 @@ type StockRow = {
   totalValue: number;
 };
 
+type ApiResponse = {
+  updatedAt: string;
+  marketState: "preopen" | "open" | "closed";
+  stats: {
+    totalRows: number;
+    positiveCount: number;
+    negativeCount: number;
+    neutralCount: number;
+    averageOiChange: number;
+  };
+  topPicks: StockRow[];
+  rows: StockRow[];
+};
+
 const formatValue = (value: number) => value.toLocaleString("en-IN");
+
+const getISTDate = () => {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return new Date(`${partMap.year}-${partMap.month}-${partMap.day}T${partMap.hour}:${partMap.minute}:${partMap.second}+05:30`);
+};
+
+const getMarketState = () => {
+  const now = getISTDate();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  if (minutes < 9 * 60 + 15) return "preopen";
+  if (minutes <= 15 * 60 + 30) return "open";
+  return "closed";
+};
+
+const getNextMarketOpenDelay = () => {
+  const now = getISTDate();
+  const nextOpen = new Date(now);
+  nextOpen.setHours(9, 15, 0, 0);
+  if (now >= nextOpen) {
+    nextOpen.setDate(nextOpen.getDate() + 1);
+  }
+  return nextOpen.getTime() - now.getTime();
+};
 
 export default function StockScanner() {
   const [data, setData] = useState<StockRow[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [marketState, setMarketState] = useState(getMarketState());
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const fetchData = async () => {
+    setLoading(true);
+    setError("");
 
-    Papa.parse<Record<string, string>>(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        const cleaned = results.data
-          .map((row) => {
-            const symbol = row["Symbol"]?.trim() ?? "";
-            const oiChange = parseFloat(
-              row["%chng in OI"]?.replace(/,/g, "") ?? ""
-            );
-            const volume = parseInt(
-              row["Volume"]?.replace(/,/g, "") ?? "",
-              10
-            );
-            const price = parseFloat(
-              row["Underlying value"]?.replace(/,/g, "") ?? ""
-            );
-            const totalValue = parseFloat(
-              row["Total Value"]?.replace(/,/g, "") ?? ""
-            );
-
-            return {
-              symbol,
-              oiChange,
-              volume: Number.isNaN(volume) ? 0 : volume,
-              price: Number.isNaN(price) ? 0 : price,
-              totalValue: Number.isNaN(totalValue) ? 0 : totalValue,
-            };
-          })
-          .filter((stock) => stock.symbol && !Number.isNaN(stock.oiChange));
-
-        setData(cleaned.sort((a, b) => b.oiChange - a.oiChange));
-      },
-      error: (error) => {
-        console.error("CSV parse error:", error);
-      },
-    });
+    try {
+      const res = await fetch("/api/oi-spurts");
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Unable to fetch live data");
+      }
+      const json: ApiResponse = await res.json();
+      setData(json.rows);
+      setLastUpdated(json.updatedAt);
+      setMarketState(json.marketState);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    let interval: number | undefined;
+    let timeout: number | undefined;
+
+    const startLiveRefresh = () => {
+      setMarketState(getMarketState());
+      if (getMarketState() !== "open") {
+        return;
+      }
+
+      fetchData();
+      interval = window.setInterval(() => {
+        if (getMarketState() === "open") {
+          fetchData();
+        } else {
+          if (interval) {
+            clearInterval(interval);
+          }
+          setMarketState(getMarketState());
+        }
+      }, 5 * 60 * 1000);
+    };
+
+    if (getMarketState() === "preopen") {
+      timeout = window.setTimeout(() => {
+        startLiveRefresh();
+      }, getNextMarketOpenDelay());
+    } else if (getMarketState() === "open") {
+      startLiveRefresh();
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
+    };
+  }, []);
 
   const filtered = useMemo(
     () =>
-      data.filter((s) =>
-        s.symbol.toLowerCase().includes(searchTerm.trim().toLowerCase())
+      data.filter((stock) =>
+        stock.symbol.toLowerCase().includes(searchTerm.trim().toLowerCase())
       ),
     [data, searchTerm]
   );
 
   const topPicks = useMemo(() => data.slice(0, 4), [data]);
+
+  const lastUpdatedText = lastUpdated
+    ? new Date(lastUpdated).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour12: false,
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "--";
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -86,35 +165,49 @@ export default function StockScanner() {
             <div>
               <p className="mb-3 flex items-center gap-2 text-sm uppercase tracking-[0.3em] text-slate-400">
                 <TrendingUp className="h-4 w-4" />
-                NSESPURT
+                NSE LIVE SCANNER
               </p>
               <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                Monday Stock Scanner
+                Next Day Stock Scanner
               </h1>
               <p className="mt-2 max-w-2xl text-slate-400">
-                Upload the NSE “Spurts-in-OI” CSV to discover high-conviction long trades,
-                targets, and stop-loss levels for the week ahead.
+                Live NSE OI Spurts data is fetched automatically between 09:15 and 15:30 IST.
+                The page refreshes every 5 minutes while the market is open.
               </p>
             </div>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-800/90 bg-slate-950 px-4 py-3 text-sm font-medium text-slate-100 shadow-lg shadow-slate-950/20 transition hover:border-slate-700">
-              <Upload className="h-5 w-5" />
-              Upload CSV
-              <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
-            </label>
+            <div className="grid gap-3 sm:auto-cols-max sm:grid-flow-col sm:items-center">
+              <div className="rounded-3xl border border-slate-800/90 bg-slate-950/90 px-4 py-3 text-sm text-slate-300">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  <span>{marketState === "open" ? "Market Open" : marketState === "preopen" ? "Pre-open" : "Market Closed"}</span>
+                </div>
+              </div>
+              <div className="rounded-3xl border border-slate-800/90 bg-slate-950/90 px-4 py-3 text-sm text-slate-300">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  <span>Last update: {lastUpdatedText}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </header>
 
-        {data.length === 0 ? (
+        {error ? (
+          <section className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-8 text-center text-rose-200 shadow-xl shadow-rose-500/10">
+            <p className="text-xl font-semibold">Live fetch failed</p>
+            <p className="mt-4 text-slate-300">{error}</p>
+          </section>
+        ) : data.length === 0 ? (
           <section className="rounded-3xl border border-slate-800/90 bg-slate-900/80 p-8 text-center shadow-xl shadow-slate-950/10">
             <div className="mx-auto max-w-2xl">
-              <p className="text-2xl font-semibold text-white">No Data Uploaded</p>
+              <p className="text-2xl font-semibold text-white">Waiting for live NSE data</p>
               <p className="mt-4 text-slate-400">
-                Please upload the "Spurts-in-OI" CSV file from NSE to generate Monday's trade analysis.
+                {marketState === "preopen"
+                  ? "The market will begin live updates from 09:15 IST. Keep this page open to start automatic downloads."
+                  : marketState === "open"
+                  ? "Fetching live data now. Please wait a few seconds."
+                  : "Market is closed after 15:30 IST. Data will stop refreshing until the next session."}
               </p>
-              <div className="mt-8 inline-flex items-center gap-2 rounded-full bg-slate-950/80 px-4 py-2 text-sm text-slate-300">
-                <FileText className="h-4 w-4" />
-                Supported columns: Symbol, %chng in OI, Volume, Underlying value, Total Value
-              </div>
             </div>
           </section>
         ) : (
@@ -127,7 +220,7 @@ export default function StockScanner() {
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-sm uppercase tracking-[0.3em] text-slate-400">High Conviction</p>
+                      <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Top Pick</p>
                       <p className="mt-3 text-3xl font-semibold text-white">{stock.symbol}</p>
                     </div>
                     <div className="rounded-3xl bg-slate-950/80 p-3 text-slate-300">
@@ -170,7 +263,7 @@ export default function StockScanner() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Market Snapshot</p>
-                    <h2 className="text-2xl font-semibold text-white">All stocks</h2>
+                    <h2 className="text-2xl font-semibold text-white">All symbols</h2>
                   </div>
 
                   <div className="relative max-w-sm">
@@ -245,7 +338,7 @@ export default function StockScanner() {
             </div>
             <p className="max-w-3xl text-sm leading-6">
               This tool identifies long build-up using price stability and open interest spikes.
-              Target is set at +5% and SL at -4% from LTP. For professional use only.
+              Target is set at +5% and SL at -4% from LTP. For educational use only.
             </p>
           </div>
         </footer>
