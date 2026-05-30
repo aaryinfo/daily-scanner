@@ -12,7 +12,7 @@ const normalizeTradingViewSymbol = (symbol: string) =>
 const resolveTradingViewSymbol = async (symbol: string) => {
   const cleaned = normalizeTradingViewSymbol(symbol);
   const query = encodeURIComponent(cleaned);
-  const searchUrl = `https://symbol-search.tradingview.com/symbol_search/?text=${query}&exchange=NSE&lang=en`;
+  const searchUrl = `https://symbol-search.tradingview.com/symbol_search/?text=${query}&exchange=BSE&lang=en`;
 
   try {
     const response = await fetch(searchUrl, { cache: "no-store" });
@@ -24,19 +24,19 @@ const resolveTradingViewSymbol = async (symbol: string) => {
     if (Array.isArray(results) && results.length > 0) {
       const exactMatch = results.find(
         (result: any) =>
-          result.full_name === `NSE:${cleaned}` || result.symbol === cleaned
+          result.full_name === `BSE:${cleaned}` || result.symbol === cleaned
       );
-      return exactMatch?.full_name ?? results[0].full_name ?? `NSE:${cleaned}`;
+      return exactMatch?.full_name ?? results[0].full_name ?? `BSE:${cleaned}`;
     }
   } catch (error) {
     console.warn("TradingView symbol lookup failed:", error);
   }
 
-  return `NSE:${cleaned}`;
+  return `BSE:${cleaned}`;
 };
 
 const loadTradingView = (symbol: string, containerId: string) => {
-  const tvSymbol = symbol.includes(":") ? symbol : `NSE:${normalizeTradingViewSymbol(symbol)}`;
+  const tvSymbol = symbol.includes(":") ? symbol : `BSE:${normalizeTradingViewSymbol(symbol)}`;
   const widgetConfig = {
     container_id: containerId,
     width: "100%",
@@ -137,7 +137,7 @@ export function TradingViewChart({ symbol }: TradingViewChartProps) {
           <div>
             <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday Price Movement</p>
             <p className="mt-1 text-xs text-slate-500">
-              Live TradingView chart for {resolvedSymbol || `NSE:${normalizeTradingViewSymbol(symbol)}`}
+              Live TradingView chart for {resolvedSymbol || `BSE:${normalizeTradingViewSymbol(symbol)}`}
             </p>
           </div>
           <div className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-300">Live chart</div>
