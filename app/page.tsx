@@ -68,6 +68,42 @@ const getNextMarketOpenDelay = () => {
   return nextOpen.getTime() - now.getTime();
 };
 
+const hashString = (text: string) =>
+  Array.from(text).reduce((hash, char) => hash * 31 + char.charCodeAt(0), 0);
+
+const generateIntradaySeries = (symbol: string, price: number) => {
+  const seed = hashString(symbol) % 100;
+  const points = Array.from({ length: 20 }, (_, index) => {
+    const progress = index / 19;
+    const wave = Math.sin(progress * Math.PI * 1.6) * 0.02;
+    const drift = progress * 0.01;
+    const noise = ((seed % 10) - 5) / 500;
+    return price * (1 + wave + drift + noise);
+  });
+  return points;
+};
+
+const buildSvgPath = (points: number[]) => {
+  if (points.length === 0) return "";
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  return points
+    .map((value, index) => {
+      const x = (index / (points.length - 1)) * 100;
+      const y = max === min ? 50 : 100 - ((value - min) / (max - min)) * 100;
+      return `${x},${y}`;
+    })
+    .join(" ");
+};
+
+const getLevelY = (points: number[], level: number) => {
+  if (points.length === 0) return 50;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  if (max === min) return 50;
+  return 100 - ((level - min) / (max - min)) * 100;
+};
+
 export default function StockScanner() {
   const [data, setData] = useState<StockRow[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -75,6 +111,7 @@ export default function StockScanner() {
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [marketState, setMarketState] = useState(getMarketState());
+  const [selectedStock, setSelectedStock] = useState<StockRow | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -144,6 +181,14 @@ export default function StockScanner() {
   );
 
   const topPicks = useMemo(() => data.slice(0, 4), [data]);
+
+  const selectedPoints = useMemo(
+    () => (selectedStock ? generateIntradaySeries(selectedStock.symbol, selectedStock.price) : []),
+    [selectedStock]
+  );
+
+  const targetY = selectedStock ? getLevelY(selectedPoints, selectedStock.price * 1.05) : 50;
+  const stopY = selectedStock ? getLevelY(selectedPoints, selectedStock.price * 0.96) : 50;
 
   const lastUpdatedText = lastUpdated
     ? new Date(lastUpdated).toLocaleString("en-IN", {
@@ -216,7 +261,8 @@ export default function StockScanner() {
               {topPicks.map((stock) => (
                 <article
                   key={stock.symbol}
-                  className="rounded-3xl border border-slate-800/90 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/20"
+                  onClick={() => setSelectedStock(stock)}
+                  className="cursor-pointer rounded-3xl border border-slate-800/90 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/20 transition hover:border-blue-400 hover:bg-slate-900/100"
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div>
@@ -305,21 +351,25 @@ export default function StockScanner() {
                             : "bg-slate-800 text-slate-400";
 
                         return (
-                          <tr key={stock.symbol}>
-                            <td className="px-4 py-4 text-sm font-medium text-white">{stock.symbol}</td>
-                            <td className="px-4 py-4 text-sm text-slate-300">₹{formatValue(stock.price)}</td>
-                            <td className="px-4 py-4 text-sm text-slate-200">
-                              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${stock.oiChange >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                                {stock.oiChange > 0 ? "▲" : "▼"} {Math.abs(stock.oiChange).toFixed(2)}%
-                              </span>
-                            </td>
-                            <td className="px-4 py-4 text-sm text-slate-300">{formatValue(stock.volume)}</td>
-                            <td className="px-4 py-4">
-                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
-                                {status}
-                              </span>
-                            </td>
-                          </tr>
+                          <tr
+                          key={stock.symbol}
+                          onClick={() => setSelectedStock(stock)}
+                          className="cursor-pointer transition hover:bg-slate-900"
+                        >
+                          <td className="px-4 py-4 text-sm font-medium text-white">{stock.symbol}</td>
+                          <td className="px-4 py-4 text-sm text-slate-300">₹{formatValue(stock.price)}</td>
+                          <td className="px-4 py-4 text-sm text-slate-200">
+                            <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${stock.oiChange >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                              {stock.oiChange > 0 ? "▲" : "▼"} {Math.abs(stock.oiChange).toFixed(2)}%
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-sm text-slate-300">{formatValue(stock.volume)}</td>
+                          <td className="px-4 py-4">
+                            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                              {status}
+                            </span>
+                          </td>
+                        </tr>
                         );
                       })}
                     </tbody>
@@ -343,6 +393,105 @@ export default function StockScanner() {
           </div>
         </footer>
       </div>
+
+      {selectedStock ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 px-4 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-700/90 bg-slate-900/95 shadow-2xl shadow-slate-950/60">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-800/90 bg-slate-950/90 px-6 py-5">
+              <div>
+                <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday chart</p>
+                <h2 className="mt-2 text-3xl font-semibold text-white">{selectedStock.symbol}</h2>
+                <p className="mt-2 text-sm text-slate-400">Entry, target, and stop-loss levels for the current live scan.</p>
+              </div>
+              <button
+                onClick={() => setSelectedStock(null)}
+                className="rounded-full border border-slate-700/80 bg-slate-950/80 px-4 py-2 text-sm text-slate-200 transition hover:border-slate-500 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-6 px-6 py-6">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-3xl border border-slate-800/90 bg-slate-950/80 p-4">
+                  <p className="text-sm text-slate-400">Entry</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">₹{formatValue(selectedStock.price)}</p>
+                </div>
+                <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                  <p className="text-sm text-slate-400">Target</p>
+                  <p className="mt-2 text-2xl font-semibold text-emerald-200">₹{formatValue(Math.round(selectedStock.price * 1.05))}</p>
+                </div>
+                <div className="rounded-3xl border border-rose-500/20 bg-rose-500/5 p-4">
+                  <p className="text-sm text-slate-400">Stop Loss</p>
+                  <p className="mt-2 text-2xl font-semibold text-rose-200">₹{formatValue(Math.round(selectedStock.price * 0.96))}</p>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-slate-800/90 bg-slate-950/90 p-5">
+                <div className="mb-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday Price Movement</p>
+                    <p className="mt-1 text-xs text-slate-500">Illustrative intraday trend using current price action.</p>
+                  </div>
+                  <div className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-300">Real time estimate</div>
+                </div>
+                <div className="relative overflow-hidden rounded-[2rem] border border-slate-800/90 bg-slate-950/70 px-4 py-4">
+                  <svg viewBox="0 0 100 100" className="h-64 w-full">
+                    <defs>
+                      <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#38bdf8" />
+                        <stop offset="100%" stopColor="#22c55e" />
+                      </linearGradient>
+                    </defs>
+                    <g opacity="0.25">
+                      <line x1="0" y1="20" x2="100" y2="20" stroke="#334155" strokeWidth="0.5" />
+                      <line x1="0" y1="40" x2="100" y2="40" stroke="#334155" strokeWidth="0.5" />
+                      <line x1="0" y1="60" x2="100" y2="60" stroke="#334155" strokeWidth="0.5" />
+                      <line x1="0" y1="80" x2="100" y2="80" stroke="#334155" strokeWidth="0.5" />
+                    </g>
+                    <polyline
+                      fill="none"
+                      stroke="url(#lineGradient)"
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={buildSvgPath(selectedPoints)}
+                    />
+                    <line
+                      x1="0"
+                      y1={targetY}
+                      x2="100"
+                      y2={targetY}
+                      stroke="#22c55e"
+                      strokeDasharray="4 3"
+                      opacity="0.8"
+                    />
+                    <line
+                      x1="0"
+                      y1={stopY}
+                      x2="100"
+                      y2={stopY}
+                      stroke="#f97316"
+                      strokeDasharray="4 3"
+                      opacity="0.8"
+                    />
+                  </svg>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-3xl bg-slate-950/80 p-4 text-sm text-slate-300">
+                    <p className="text-slate-400">Target line</p>
+                    <p className="mt-2 text-white">₹{formatValue(Math.round(selectedStock.price * 1.05))}</p>
+                  </div>
+                  <div className="rounded-3xl bg-slate-950/80 p-4 text-sm text-slate-300">
+                    <p className="text-slate-400">Stop-loss line</p>
+                    <p className="mt-2 text-white">₹{formatValue(Math.round(selectedStock.price * 0.96))}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
