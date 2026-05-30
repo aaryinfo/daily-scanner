@@ -18,6 +18,12 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+This project also includes a downloader for NSE OI Spurts CSV data.
+
+- `npm run download-spurts -- --date=30052026` downloads the Underlying CSV and prints a summary.
+- `npm run schedule-spurts` starts a scheduler that will run the download daily at 5:00 pm local time while the process is running.
+- `.github/workflows/daily-spurts.yml` runs daily at 17:00 IST on GitHub Actions, so the download happens even if your PC is off.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

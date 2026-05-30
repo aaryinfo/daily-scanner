@@ -1,0 +1,35 @@
+name: Daily NSE OI Spurts Download
+
+on:
+  schedule:
+    - cron: '30 11 * * *' # 11:30 UTC = 17:00 IST
+  workflow_dispatch: {}
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Set download date
+        run: |
+          echo "TODAY=$(date -u +'%d%m%Y')" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download NSE OI Spurts CSV
+        run: npm run download-spurts -- --date=${{ env.TODAY }}
+
+      - name: Upload downloaded CSV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oi-spurts-csv-${{ env.TODAY }}
+          path: downloads/*.csv

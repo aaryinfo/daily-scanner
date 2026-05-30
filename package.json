@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "download-spurts": "node scripts/download-spurts-api.js",
+    "schedule-spurts": "node scripts/schedule-spurts.js"
   },
   "dependencies": {
     "lucide-react": "^1.17.0",
