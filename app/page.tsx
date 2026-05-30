@@ -104,59 +104,65 @@ const getLevelY = (points: number[], level: number) => {
   return 100 - ((level - min) / (max - min)) * 100;
 };
 
-const normalizeTradingViewSymbol = (symbol: string) => {
-  const cleaned = symbol.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (cleaned.endsWith("I") && cleaned.length > 2) {
-    return cleaned.slice(0, -1);
+const normalizeTradingViewSymbol = (symbol: string) => symbol.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+const resolveTradingViewSymbol = async (symbol: string) => {
+  const cleaned = normalizeTradingViewSymbol(symbol);
+  const query = encodeURIComponent(cleaned);
+  const searchUrl = `https://symbol-search.tradingview.com/symbol_search/?text=${query}&exchange=NSE&lang=en`;
+
+  try {
+    const response = await fetch(searchUrl, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Search API responded ${response.status}`);
+    }
+
+    const results = await response.json();
+    if (Array.isArray(results) && results.length > 0) {
+      const exactMatch = results.find(
+        (result: any) =>
+          result.full_name === `NSE:${cleaned}` || result.symbol === cleaned
+      );
+      return exactMatch?.full_name ?? results[0].full_name ?? `NSE:${cleaned}`;
+    }
+  } catch (error) {
+    console.warn("TradingView symbol lookup failed:", error);
   }
-  return cleaned;
+
+  return `NSE:${cleaned}`;
 };
 
 const loadTradingView = (symbol: string, containerId: string) => {
-  const tvSymbol = `NSE:${normalizeTradingViewSymbol(symbol)}`;
+  const tvSymbol = symbol.includes(":") ? symbol : `NSE:${normalizeTradingViewSymbol(symbol)}`;
   const tv = (window as any).TradingView;
+  const widgetConfig = {
+    container_id: containerId,
+    width: "100%",
+    height: 420,
+    symbol: tvSymbol,
+    interval: "15",
+    timezone: "Asia/Kolkata",
+    theme: "dark",
+    style: "1",
+    locale: "en",
+    toolbar_bg: "#0f172a",
+    enable_publishing: false,
+    allow_symbol_change: true,
+    hide_top_toolbar: false,
+    save_image: false,
+    studies: ["MASimple@tv-basicstudies"],
+  };
+
   if (!tv && !document.querySelector(`script[src="https://s3.tradingview.com/tv.js"]`)) {
     const script = document.createElement("script");
     script.src = "https://s3.tradingview.com/tv.js";
     script.async = true;
     script.onload = () => {
-      new (window as any).TradingView.widget({
-        container_id: containerId,
-        width: "100%",
-        height: 420,
-        symbol: tvSymbol,
-        interval: "15",
-        timezone: "Asia/Kolkata",
-        theme: "dark",
-        style: "1",
-        locale: "en",
-        toolbar_bg: "#0f172a",
-        enable_publishing: false,
-        allow_symbol_change: false,
-        hide_top_toolbar: true,
-        save_image: false,
-        studies: ["MASimple@tv-basicstudies"],
-      });
+      new (window as any).TradingView.widget(widgetConfig);
     };
     document.body.appendChild(script);
   } else {
-    new (window as any).TradingView.widget({
-      container_id: containerId,
-      width: "100%",
-      height: 420,
-      symbol: tvSymbol,
-      interval: "15",
-      timezone: "Asia/Kolkata",
-      theme: "dark",
-      style: "1",
-      locale: "en",
-      toolbar_bg: "#0f172a",
-      enable_publishing: false,
-      allow_symbol_change: false,
-      hide_top_toolbar: true,
-      save_image: false,
-      studies: ["MASimple@tv-basicstudies"],
-    });
+    new (window as any).TradingView.widget(widgetConfig);
   }
 };
 
@@ -228,19 +234,38 @@ export default function StockScanner() {
     };
   }, []);
 
-  const tradingViewSymbol = useMemo(
-    () => (selectedStock ? `NSE:${normalizeTradingViewSymbol(selectedStock.symbol)}` : ""),
-    [selectedStock]
-  );
+  const [tradingViewSymbol, setTradingViewSymbol] = useState<string>("");
+  const [tradingViewError, setTradingViewError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!selectedStock) return;
+    if (!selectedStock) {
+      setTradingViewSymbol("");
+      setTradingViewError(null);
+      return;
+    }
+
     const containerId = `tradingview-${selectedStock.symbol}`;
     const container = document.getElementById(containerId);
-    if (container) {
-      container.innerHTML = "";
-      loadTradingView(selectedStock.symbol, containerId);
-    }
+
+    const initTradingView = async () => {
+      setTradingViewError(null);
+      const resolvedSymbol = await resolveTradingViewSymbol(selectedStock.symbol);
+      setTradingViewSymbol(resolvedSymbol);
+
+      if (container) {
+        container.innerHTML = "";
+        loadTradingView(resolvedSymbol, containerId);
+      }
+    };
+
+    initTradingView().catch((error) => {
+      console.error("TradingView initialization failed:", error);
+      setTradingViewError("Unable to load TradingView chart. Please try another symbol.");
+      if (container) {
+        container.innerHTML = "";
+        loadTradingView(selectedStock.symbol, containerId);
+      }
+    });
   }, [selectedStock]);
 
   const filtered = useMemo(
@@ -559,10 +584,17 @@ export default function StockScanner() {
                 <div className="mb-4 flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday Price Movement</p>
-                    <p className="mt-1 text-xs text-slate-500">Live TradingView chart for {tradingViewSymbol || `NSE:${selectedStock.symbol}`}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Live TradingView chart for {tradingViewSymbol || `NSE:${selectedStock.symbol}`}
+                    </p>
                   </div>
                   <div className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-300">Live chart</div>
                 </div>
+                {tradingViewError ? (
+                  <div className="mt-4 rounded-3xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-200">
+                    {tradingViewError}
+                  </div>
+                ) : null}
                 <div className="relative overflow-hidden rounded-[2rem] border border-slate-800/90 bg-slate-950/70 px-4 py-4">
                   <div
                     id={`tradingview-${selectedStock.symbol}`}
