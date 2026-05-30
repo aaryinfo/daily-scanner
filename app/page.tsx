@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   TrendingUp,
   Search,
@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Clock,
 } from "lucide-react";
+import { TradingViewChart } from "./components/TradingViewChart";
 
 type StockRow = {
   symbol: string;
@@ -104,84 +105,6 @@ const getLevelY = (points: number[], level: number) => {
   return 100 - ((level - min) / (max - min)) * 100;
 };
 
-const normalizeTradingViewSymbol = (symbol: string) => symbol.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-const resolveTradingViewSymbol = async (symbol: string) => {
-  const cleaned = normalizeTradingViewSymbol(symbol);
-  const query = encodeURIComponent(cleaned);
-  const searchUrl = `https://symbol-search.tradingview.com/symbol_search/?text=${query}&exchange=NSE&lang=en`;
-
-  try {
-    const response = await fetch(searchUrl, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`Search API responded ${response.status}`);
-    }
-
-    const results = await response.json();
-    if (Array.isArray(results) && results.length > 0) {
-      const exactMatch = results.find(
-        (result: any) =>
-          result.full_name === `NSE:${cleaned}` || result.symbol === cleaned
-      );
-      return exactMatch?.full_name ?? results[0].full_name ?? `NSE:${cleaned}`;
-    }
-  } catch (error) {
-    console.warn("TradingView symbol lookup failed:", error);
-  }
-
-  return `NSE:${cleaned}`;
-};
-
-const loadTradingView = (symbol: string, containerId: string) => {
-  const tvSymbol = symbol.includes(":") ? symbol : `NSE:${normalizeTradingViewSymbol(symbol)}`;
-  const tv = (window as any).TradingView;
-  const widgetConfig = {
-    container_id: containerId,
-    width: "100%",
-    height: 420,
-    symbol: tvSymbol,
-    interval: "15",
-    timezone: "Asia/Kolkata",
-    theme: "dark",
-    style: "1",
-    locale: "en",
-    toolbar_bg: "#0f172a",
-    enable_publishing: false,
-    allow_symbol_change: true,
-    hide_top_toolbar: false,
-    save_image: false,
-    studies: ["MASimple@tv-basicstudies"],
-  };
-
-  const initWidget = () => {
-    if ((window as any).TradingView) {
-      new (window as any).TradingView.widget(widgetConfig);
-    }
-  };
-
-  const existingScript = document.querySelector(
-    `script[src="https://s3.tradingview.com/tv.js"]`
-  ) as HTMLScriptElement | null;
-
-  if ((window as any).TradingView) {
-    initWidget();
-    return;
-  }
-
-  if (existingScript) {
-    existingScript.addEventListener("load", initWidget, { once: true });
-    return;
-  }
-
-  const script = document.createElement("script");
-  script.src = "https://s3.tradingview.com/tv.js";
-  script.async = true;
-  script.onload = () => {
-    initWidget();
-  };
-  document.body.appendChild(script);
-};
-
 export default function StockScanner() {
   const [data, setData] = useState<StockRow[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -248,40 +171,6 @@ export default function StockScanner() {
       if (timeout) clearTimeout(timeout);
     };
   }, []);
-
-  const [tradingViewSymbol, setTradingViewSymbol] = useState<string>("");
-  const [tradingViewError, setTradingViewError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!selectedStock) {
-      setTradingViewSymbol("");
-      setTradingViewError(null);
-      return;
-    }
-
-    const containerId = `tradingview-${selectedStock.symbol}`;
-    const container = document.getElementById(containerId);
-
-    const initTradingView = async () => {
-      setTradingViewError(null);
-      const resolvedSymbol = await resolveTradingViewSymbol(selectedStock.symbol);
-      setTradingViewSymbol(resolvedSymbol);
-
-      if (container) {
-        container.innerHTML = "";
-        loadTradingView(resolvedSymbol, containerId);
-      }
-    };
-
-    initTradingView().catch((error) => {
-      console.error("TradingView initialization failed:", error);
-      setTradingViewError("Unable to load TradingView chart. Please try another symbol.");
-      if (container) {
-        container.innerHTML = "";
-        loadTradingView(selectedStock.symbol, containerId);
-      }
-    });
-  }, [selectedStock]);
 
   const filtered = useMemo(
     () =>
@@ -600,22 +489,12 @@ export default function StockScanner() {
                   <div>
                     <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday Price Movement</p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Live TradingView chart for {tradingViewSymbol || `NSE:${selectedStock.symbol}`}
+                      Live TradingView chart for {`NSE:${selectedStock.symbol}`}
                     </p>
                   </div>
                   <div className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-300">Live chart</div>
                 </div>
-                {tradingViewError ? (
-                  <div className="mt-4 rounded-3xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-200">
-                    {tradingViewError}
-                  </div>
-                ) : null}
-                <div className="relative overflow-hidden rounded-[2rem] border border-slate-800/90 bg-slate-950/70 px-4 py-4">
-                  <div
-                    id={`tradingview-${selectedStock.symbol}`}
-                    className="h-[420px] w-full"
-                  />
-                </div>
+                <TradingViewChart symbol={selectedStock.symbol} />
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-3xl bg-slate-950/80 p-4 text-sm text-slate-300">
                     <p className="text-slate-400">Target line</p>
