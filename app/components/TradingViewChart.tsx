@@ -12,7 +12,7 @@ const normalizeTradingViewSymbol = (symbol: string) =>
 const resolveTradingViewSymbol = async (symbol: string) => {
   const cleaned = normalizeTradingViewSymbol(symbol);
   const query = encodeURIComponent(cleaned);
-  const searchUrl = `https://symbol-search.tradingview.com/symbol_search/?text=${query}&exchange=BSE&lang=en`;
+  const searchUrl = `https://symbol-search.tradingview.com/symbol_search/?text=${query}&exchange=NSE&lang=en`;
 
   try {
     const response = await fetch(searchUrl, { cache: "no-store" });
@@ -24,19 +24,19 @@ const resolveTradingViewSymbol = async (symbol: string) => {
     if (Array.isArray(results) && results.length > 0) {
       const exactMatch = results.find(
         (result: any) =>
-          result.full_name === `BSE:${cleaned}` || result.symbol === cleaned
+          result.full_name === `NSE:${cleaned}` || result.symbol === cleaned
       );
-      return exactMatch?.full_name ?? results[0].full_name ?? `BSE:${cleaned}`;
+      return exactMatch?.full_name ?? results[0].full_name ?? `NSE:${cleaned}`;
     }
   } catch (error) {
     console.warn("TradingView symbol lookup failed:", error);
   }
 
-  return `BSE:${cleaned}`;
+  return `NSE:${cleaned}`;
 };
 
 const loadTradingView = (symbol: string, containerId: string) => {
-  const tvSymbol = symbol.includes(":") ? symbol : `BSE:${normalizeTradingViewSymbol(symbol)}`;
+  const tvSymbol = symbol.includes(":") ? symbol : `NSE:${normalizeTradingViewSymbol(symbol)}`;
   const widgetConfig = {
     container_id: containerId,
     width: "100%",
@@ -131,26 +131,15 @@ export function TradingViewChart({ symbol }: TradingViewChartProps) {
   }, [symbol, containerId]);
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-3xl border border-slate-800/90 bg-slate-950/90 p-5">
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Intraday Price Movement</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Live TradingView chart for {resolvedSymbol || `BSE:${normalizeTradingViewSymbol(symbol)}`}
-            </p>
-          </div>
-          <div className="rounded-full bg-slate-900 px-3 py-1 text-xs text-slate-300">Live chart</div>
+    <>
+      {error ? (
+        <div className="mb-4 rounded-3xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-200">
+          {error}
         </div>
-        {error ? (
-          <div className="mt-4 rounded-3xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-200">
-            {error}
-          </div>
-        ) : null}
-        <div className="relative overflow-hidden rounded-[2rem] border border-slate-800/90 bg-slate-950/70 px-4 py-4">
-          <div id={containerId} className="h-[420px] w-full" />
-        </div>
+      ) : null}
+      <div className="relative overflow-hidden rounded-[2rem] border border-slate-800/90 bg-slate-950/70 px-4 py-4">
+        <div id={containerId} className="h-[420px] w-full" />
       </div>
-    </div>
+    </>
   );
 }
