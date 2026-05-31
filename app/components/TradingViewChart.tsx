@@ -34,14 +34,16 @@ export function TradingViewChart({ symbol }: TradingViewChartProps) {
       setError(null);
       
       try {
-        const response = await fetch(`/api/history?symbol=${encodeURIComponent(symbol)}&interval=15m`);
+        // Ensure NSE: prefix for the API call
+        const nseSymbol = symbol.startsWith("NSE:") ? symbol : `NSE:${symbol}`;
+        const response = await fetch(`/api/history?symbol=${encodeURIComponent(nseSymbol)}&interval=15m`);
         if (!response.ok) throw new Error(`API responded with status ${response.status}`);
         
         const data: ChartData[] = await response.json();
         if (!isMounted) return;
 
         if (!data || data.length === 0) {
-          setError(`No data available for ${symbol}`);
+          setError(`No data available for ${nseSymbol}`);
           setLoading(false);
           return;
         }
